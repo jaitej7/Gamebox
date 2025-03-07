@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Spider Invaders Mobile</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            touch-action: none; /* Prevents pinch/zoom and scrolling */
+        }
+        #gameCanvas {
+            width: 100%;
+            max-width: 360px; /* Typical mobile width */
+            height: 100%;
+            max-height: 640px; /* Typical mobile height */
+            border: 2px solid #fff;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas size dynamically for mobile
+        canvas.width = Math.min(window.innerWidth, 360);
+        canvas.height = Math.min(window.innerHeight, 640);
+
+        // Player (spaceship)
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height - 50,
+            width: 30,
+            height: 15,
+            speed: 5,
+            dx: 0
+        };
+
+        // Projectiles (red bullets)
+        const projectiles = [];
+        const projectileSpeed = 7;
+
+        // Invaders (spiders)
+        let invaders = [];
+        const invaderWidth = 25; // Smaller spiders
+        const invaderHeight = 25;
+        let baseInvaderSpeed = 1; // Base speed, increases per round
+        let invaderSpeed = baseInvaderSpeed;
+        let invaderDirection = 1;
+        let round = 1;
+        const totalRounds = 5;
+
+        // Colors for spider invaders across 5 rounds
+        const roundColors = [
+            ['#ff5555', '#55ff55', '#5555ff'], // Round 1: Red, Green, Blue
+            ['#ffaa00', '#aa00ff', '#00aaff'], // Round 2: Orange, Purple, Cyan
+            ['#ff00ff', '#00ff00', '#ffff00'], // Round 3: Magenta, Lime, Yellow
+            ['#ff7777', '#77ff77', '#7777ff'], // Round 4: Light Red, Light Green, Light Blue
+            ['#ffcc00', '#cc00ff', '#00ccff']  // Round 5: Gold, Violet, Sky Blue
+        ];
+
+        // Game state
+        let gameOver = false;
+
+        // Sound for bullet hitting spider (base64 "pop" sound)
+        const hitSound = new Audio('data:audio/mpeg;base64,/+MYxAAAAANIAAAAAExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA/+MYxDsAAABFAAAAgExBTUUzLjEwMC4xMDAAAAAA');
+
+        // Create spider invaders for a round (more spiders)
+        function createInvaders(colors) {
+            invaders = [];
+            for (let i = 0; i < 8; i++) { // Increased columns
+                for (let j = 0; j < 4; j++) { // Increased rows
+                    invaders.push({
+                        x: 50 + i * 40, // Adjusted spacing for smaller spiders
+                        y: 30 + j * 40,
+                        width: invaderWidth,
+                        height: invaderHeight,
+                        color: colors[j % colors.length],
+                        alive: true
+                    });
+                }
+            }
+        }
+
+        // Start first round
+        createInvaders(roundColors[0]);
+
+        // Player controls (keyboard)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') player.dx = -player.speed;
+            if (e.key === 'ArrowRight') player.dx = player.speed;
+            if (e.key === ' ' && !gameOver) shootBullet();
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') player.dx = 0;
+        });
+
+        // Touch controls
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (!gameOver) shootBullet();
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const touchX = touch.clientX - rect.left;
+            player.x = touchX - player.width / 2;
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+        });
+
+        // Shoot red bullet
+        function shootBullet() {
+            projectiles.push({
+                x: player.x + player.width / 2 - 2,
+                y: player.y,
+                width: 4,
+                height: 10
+            });
+        }
+
+        // Draw player (spaceship)
+        function drawPlayer() {
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y);
+            ctx.lineTo(player.x + player.width / 2, player.y - player.height);
+            ctx.lineTo(player.x + player.width, player.y);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Draw spider-shaped invaders
+        function drawInvaders() {
+            invaders.forEach(invader => {
+                if (invader.alive) {
+                    ctx.fillStyle = invader.color;
+                    // Body (circle)
+                    ctx.beginPath();
+                    ctx.arc(invader.x + invader.width / 2, invader.y + invader.height / 2, invader.width / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    // Legs (lines)
+                    ctx.strokeStyle = invader.color;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(invader.x + 5, invader.y + 5);
+                    ctx.lineTo(invader.x - 5, invader.y - 5);
+                    ctx.moveTo(invader.x + 20, invader.y + 5);
+                    ctx.lineTo(invader.x + 30, invader.y - 5);
+                    ctx.moveTo(invader.x + 5, invader.y + 20);
+                    ctx.lineTo(invader.x - 5, invader.y + 30);
+                    ctx.moveTo(invader.x + 20, invader.y + 20);
+                    ctx.lineTo(invader.x + 30, invader.y + 30);
+                    ctx.stroke();
+                }
+            });
+        }
+
+        // Draw red projectiles
+        function drawProjectiles() {
+            projectiles.forEach((proj, index) => {
+                ctx.fillStyle = '#ff0000'; // Red bullets
+                ctx.fillRect(proj.x, proj.y, proj.width, proj.height);
+                proj.y -= projectileSpeed;
+                if (proj.y < 0) projectiles.splice(index, 1);
+            });
+        }
+
+        // Move invaders
+        function moveInvaders() {
+            let edge = false;
+            invaders.forEach(invader => {
+                if (invader.alive) {
+                    invader.x += invaderSpeed * invaderDirection;
+                    if (invader.x + invader.width > canvas.width || invader.x < 0) edge = true;
+                    if (invader.y + invader.height >= player.y) gameOver = true;
+                }
+            });
+            if (edge) {
+                invaderDirection *= -1;
+                invaders.forEach(invader => {
+                    if (invader.alive) invader.y += 15; // Smaller step for smaller spiders
+                });
+            }
+        }
+
+        // Collision detection with sound
+        function checkCollisions() {
+            projectiles.forEach((proj, pIndex) => {
+                invaders.forEach((invader, iIndex) => {
+                    if (invader.alive &&
+                        proj.x < invader.x + invader.width &&
+                        proj.x + proj.width > invader.x &&
+                        proj.y < invader.y + invader.height &&
+                        proj.y + proj.height > invader.y) {
+                        invader.alive = false;
+                        projectiles.splice(pIndex, 1);
+                        hitSound.play(); // Play sound on hit
+                    }
+                });
+            });
+        }
+
+        // Check if round is over and increase speed
+        function checkRoundEnd() {
+            if (invaders.every(invader => !invader.alive) && !gameOver) {
+                round++;
+                if (round <= totalRounds) {
+                    invaderSpeed = baseInvaderSpeed * Math.pow(1.2, round - 1); // Increase speed by 20% per round
+                    createInvaders(roundColors[round - 1]);
+                } else {
+                    gameOver = true;
+                }
+            }
+        }
+
+        // Update game
+        function update() {
+            if (!gameOver) {
+                player.x += player.dx;
+                if (player.x < 0) player.x = 0;
+                if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+
+                moveInvaders();
+                checkCollisions();
+                checkRoundEnd();
+            }
+        }
+
+        // Draw everything
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawPlayer();
+            drawInvaders();
+            drawProjectiles();
+
+            if (gameOver) {
+                ctx.fillStyle = '#fff';
+                ctx.font = '30px Arial';
+                ctx.fillText(round > totalRounds ? 'You Win!' : 'Game Over', canvas.width / 2 - 80, canvas.height / 2);
+            } else {
+                ctx.fillStyle = '#fff';
+                ctx.font = '16px Arial';
+                ctx.fillText(`Round ${round} / ${totalRounds}`, 10, 20);
+            }
+        }
+
+        // Game loop
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
